@@ -1,4 +1,4 @@
-package google
+package gaccauth
 
 import (
 	"errors"
@@ -131,6 +131,7 @@ func (b *backend) authRenew(ctx context.Context, req *logical.Request, d *framew
 
 func (b *backend) authenticate(config *config, token *oauth2.Token) (*goauth.Userinfo, []string, error) {
 	client := config.oauth2Config().Client(context.Background(), token)
+
 	userService, err := goauth.New(client)
 	if err != nil {
 		return nil, nil, err

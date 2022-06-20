@@ -1,4 +1,4 @@
-package google
+package gaccauth
 
 import (
 	"context"
@@ -7,6 +7,10 @@ import (
 	"github.com/hashicorp/vault/sdk/framework"
 	"github.com/hashicorp/vault/sdk/logical"
 )
+
+type ActionCallback map[logical.Operation]framework.OperationFunc
+
+type Schema map[string]*framework.FieldSchema
 
 type backend struct {
 	Map *framework.PolicyMap
@@ -49,7 +53,7 @@ func newBackend() *backend {
 		Paths: append([]*framework.Path{
 			{
 				Pattern: configPath,
-				Fields: map[string]*framework.FieldSchema{
+				Fields: Schema{
 					clientIDConfigPropertyName: {
 						Type:        framework.TypeString,
 						Description: "Google OAuth client id",
@@ -76,7 +80,7 @@ func newBackend() *backend {
 					},
 				},
 
-				Callbacks: map[logical.Operation]framework.OperationFunc{
+				Callbacks: ActionCallback{
 					logical.UpdateOperation: b.pathConfigWrite,
 					logical.ReadOperation:   b.pathConfigRead,
 				},
@@ -84,7 +88,7 @@ func newBackend() *backend {
 
 			{
 				Pattern: loginPath,
-				Fields: map[string]*framework.FieldSchema{
+				Fields: Schema{
 					googleAuthCodeParameterName: {
 						Type:        framework.TypeString,
 						Description: "Google authentication code. Required.",
@@ -95,7 +99,7 @@ func newBackend() *backend {
 					},
 				},
 
-				Callbacks: map[logical.Operation]framework.OperationFunc{
+				Callbacks: ActionCallback{
 					logical.UpdateOperation:         b.pathLogin,
 					logical.AliasLookaheadOperation: b.pathLogin,
 				},
@@ -103,8 +107,8 @@ func newBackend() *backend {
 
 			{
 				Pattern: codeURLPath,
-				Fields:  map[string]*framework.FieldSchema{},
-				Callbacks: map[logical.Operation]framework.OperationFunc{
+				Fields:  Schema{},
+				Callbacks: ActionCallback{
 					logical.ReadOperation: b.pathCodeURL,
 				},
 			},
@@ -114,7 +118,7 @@ func newBackend() *backend {
 				Pattern:        fmt.Sprintf("role/%s", framework.GenericNameRegex("name")),
 				Fields:         roleFieldSchema,
 				ExistenceCheck: b.pathRoleExistenceCheck,
-				Callbacks: map[logical.Operation]framework.OperationFunc{
+				Callbacks: ActionCallback{
 					logical.CreateOperation: b.pathRoleCreateUpdate,
 					logical.ReadOperation:   b.pathRoleRead,
 					logical.UpdateOperation: b.pathRoleCreateUpdate,
@@ -127,7 +131,7 @@ func newBackend() *backend {
 			// Paths for listing roles
 			{
 				Pattern: "role/?",
-				Callbacks: map[logical.Operation]framework.OperationFunc{
+				Callbacks: ActionCallback{
 					logical.ListOperation: b.pathRoleList,
 				},
 
@@ -136,7 +140,7 @@ func newBackend() *backend {
 			},
 			{
 				Pattern: "roles/?",
-				Callbacks: map[logical.Operation]framework.OperationFunc{
+				Callbacks: ActionCallback{
 					logical.ListOperation: b.pathRoleList,
 				},
 

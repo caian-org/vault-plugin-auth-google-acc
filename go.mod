@@ -1,4 +1,4 @@
-module github.com/caian-org/vault-google-auth-plugin
+module github.com/caian-org/vault-plugin-auth-google-acc
 
 go 1.18
 

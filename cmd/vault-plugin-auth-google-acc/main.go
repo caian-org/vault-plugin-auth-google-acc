@@ -3,7 +3,7 @@ package main
 import (
 	"os"
 
-	google "github.com/caian-org/vault-google-auth-plugin/google"
+	google "github.com/caian-org/vault-plugin-auth-google-acc"
 	"github.com/hashicorp/go-hclog"
 	"github.com/hashicorp/vault/api"
 	"github.com/hashicorp/vault/sdk/plugin"

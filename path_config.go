@@ -1,4 +1,4 @@
-package google
+package gaccauth
 
 import (
 	"context"
@@ -23,6 +23,15 @@ const (
 	configEntry                               = "config"
 )
 
+type config struct {
+	ClientID       string `json:"client_id"`
+	ClientSecret   string `json:"client_secret"`
+	RedirectURL    string `json:"redirect_url"`
+	FetchGroups    bool   `json:"fetch_groups"`
+	ServiceAccount string `json:"service_acc_key"`
+	DelegationUser string `json:"delegation_user"`
+}
+
 func (b *backend) pathConfigWrite(ctx context.Context, req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
 	var (
 		clientID       = data.Get(clientIDConfigPropertyName).(string)
@@ -41,6 +50,7 @@ func (b *backend) pathConfigWrite(ctx context.Context, req *logical.Request, dat
 		ServiceAccount: serviceAccount,
 		DelegationUser: delegationUser,
 	})
+
 	if err != nil {
 		return nil, err
 	}
@@ -50,9 +60,11 @@ func (b *backend) pathConfigWrite(ctx context.Context, req *logical.Request, dat
 
 func (b *backend) pathConfigRead(ctx context.Context, req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
 	config, err := b.config(ctx, req.Storage)
+
 	if err != nil {
 		return nil, err
 	}
+
 	if config == nil {
 		return nil, nil
 	}
@@ -66,17 +78,17 @@ func (b *backend) pathConfigRead(ctx context.Context, req *logical.Request, data
 		clientDelegationUserConfigPropertyName:    config.DelegationUser,
 	}
 
-	return &logical.Response{
-		Data: configMap,
-	}, nil
+	return &logical.Response{Data: configMap}, nil
 }
 
 // Config returns the configuration for this backend.
 func (b *backend) config(ctx context.Context, s logical.Storage) (*config, error) {
 	entry, err := s.Get(ctx, configEntry)
+
 	if err != nil {
 		return nil, err
 	}
+
 	if entry == nil {
 		return nil, nil
 	}
@@ -87,15 +99,6 @@ func (b *backend) config(ctx context.Context, s logical.Storage) (*config, error
 	}
 
 	return &result, nil
-}
-
-type config struct {
-	ClientID       string `json:"client_id"`
-	ClientSecret   string `json:"client_secret"`
-	RedirectURL    string `json:"redirect_url"`
-	FetchGroups    bool   `json:"fetch_groups"`
-	ServiceAccount string `json:"service_acc_key"`
-	DelegationUser string `json:"delegation_user"`
 }
 
 func (c *config) oauth2Config() *oauth2.Config {
@@ -113,5 +116,6 @@ func (c *config) oauth2Config() *oauth2.Config {
 			"https://www.googleapis.com/auth/userinfo.email",
 		},
 	}
+
 	return config
 }
