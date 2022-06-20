@@ -1,28 +1,34 @@
 package main
 
 import (
-	"log"
 	"os"
 
-	"github.com/erozario/vault-auth-google/google"
-	"github.com/hashicorp/vault/helper/pluginutil"
-	"github.com/hashicorp/vault/logical/plugin"
+	google "github.com/caian-org/vault-google-auth-plugin/google"
+	"github.com/hashicorp/go-hclog"
+	"github.com/hashicorp/vault/api"
+	"github.com/hashicorp/vault/sdk/plugin"
 )
 
 func main() {
-	apiClientMeta := &pluginutil.APIClientMeta{}
+	apiClientMeta := &api.PluginAPIClientMeta{}
+	logger := hclog.New(&hclog.LoggerOptions{})
+
 	flags := apiClientMeta.FlagSet()
 	if err := flags.Parse(os.Args[1:]); err != nil {
-		log.Fatal(err)
+		logger.Error("could not parse flags", "error", err)
+		os.Exit(1)
 	}
 
 	tlsConfig := apiClientMeta.GetTLSConfig()
-	tlsProviderFunc := pluginutil.VaultPluginTLSProvider(tlsConfig)
+	tlsProviderFunc := api.VaultPluginTLSProvider(tlsConfig)
 
-	if err := plugin.Serve(&plugin.ServeOpts{
+	err := plugin.Serve(&plugin.ServeOpts{
 		BackendFactoryFunc: google.Factory,
 		TLSProviderFunc:    tlsProviderFunc,
-	}); err != nil {
-		log.Fatal(err)
+	})
+
+	if err != nil {
+		logger.Error("plugin shutting down", "error", err)
+		os.Exit(1)
 	}
 }

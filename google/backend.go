@@ -4,17 +4,13 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/hashicorp/vault/logical"
-	"github.com/hashicorp/vault/logical/framework"
+	"github.com/hashicorp/vault/sdk/framework"
+	"github.com/hashicorp/vault/sdk/logical"
 )
 
-// Factory for Google backend.
-func Factory(ctx context.Context, conf *logical.BackendConfig) (logical.Backend, error) {
-	b := newBackend()
-	if err := b.Setup(ctx, conf); err != nil {
-		return nil, err
-	}
-	return b, nil
+type backend struct {
+	Map *framework.PolicyMap
+	*framework.Backend
 }
 
 const googleBackendHelp = `
@@ -22,6 +18,17 @@ The Google credential provider allows you to authenticate with Google.
 
 Documentation can be found at https://github.com/erozario/vault-auth-google.
 `
+
+// Factory for Google backend.
+func Factory(ctx context.Context, conf *logical.BackendConfig) (logical.Backend, error) {
+	b := newBackend()
+
+	if err := b.Setup(ctx, conf); err != nil {
+		return nil, err
+	}
+
+	return b, nil
+}
 
 // Backend for google
 func newBackend() *backend {
@@ -140,9 +147,4 @@ func newBackend() *backend {
 	}
 
 	return b
-}
-
-type backend struct {
-	Map *framework.PolicyMap
-	*framework.Backend
 }

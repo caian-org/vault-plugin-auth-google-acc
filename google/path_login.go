@@ -10,8 +10,8 @@ import (
 	directory "google.golang.org/api/admin/directory/v1"
 	goauth "google.golang.org/api/oauth2/v2"
 
-	"github.com/hashicorp/vault/logical"
-	"github.com/hashicorp/vault/logical/framework"
+	"github.com/hashicorp/vault/sdk/framework"
+	"github.com/hashicorp/vault/sdk/logical"
 )
 
 const (
@@ -129,7 +129,7 @@ func (b *backend) authRenew(ctx context.Context, req *logical.Request, d *framew
 	return framework.LeaseExtend(role.TTL, role.MaxTTL, b.System())(ctx, req, d)
 }
 
-func (b *backend) authenticate(config *config, token *oauth2.Token) (*goauth.Userinfoplus, []string, error) {
+func (b *backend) authenticate(config *config, token *oauth2.Token) (*goauth.Userinfo, []string, error) {
 	client := config.oauth2Config().Client(context.Background(), token)
 	userService, err := goauth.New(client)
 	if err != nil {
@@ -169,7 +169,7 @@ func (b *backend) authenticate(config *config, token *oauth2.Token) (*goauth.Use
 	return user, groups, nil
 }
 
-func (b *backend) authorise(storage logical.Storage, role *role, user *goauth.Userinfoplus, groups []string) ([]string, error) {
+func (b *backend) authorise(storage logical.Storage, role *role, user *goauth.Userinfo, groups []string) ([]string, error) {
 	if user.Hd != role.BoundDomain && role.BoundDomain != "" {
 		return nil, fmt.Errorf("user %s is not part of required domain %s, found %s", user.Email, role.BoundDomain, user.Hd)
 	}
