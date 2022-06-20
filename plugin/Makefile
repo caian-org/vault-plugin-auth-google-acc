@@ -9,5 +9,10 @@ build:
 release: BUILD_FLAGS += -ldflags "-w -s"
 release: build
 
+container-binary: export CGO_ENABLED = 0
+container-binary: export GOOS = linux
+container-binary: BUILD_FLAGS += -v -installsuffix cgo
+container-binary: release
+
 format:
 	gofmt -s -w .
