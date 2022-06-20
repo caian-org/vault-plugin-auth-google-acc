@@ -12,187 +12,6 @@ import (
 	"github.com/hashicorp/vault/sdk/logical"
 )
 
-const (
-	pathRoleHelpSyn  = `Create a Google role with associated policies and required attributes.`
-	pathRoleHelpDesc = `
-A role is required to login under the Google auth backend. A role binds Vault policies and has
-required attributes that an authenticating entity must fulfill to login against this role.
-After authenticating the instance, Vault uses the bound policies to determine which resources
-the authorization token for the instance can access.
-`
-
-	pathListRolesHelpSyn  = `Lists all the roles that are registered with Vault.`
-	pathListRolesHelpDesc = `Lists all roles under the Google backends by name.`
-
-	errEmptyRoleName = "role name is required"
-	errEmptyDomain   = "bound domain cannot be empty"
-)
-
-var roleFieldSchema = map[string]*framework.FieldSchema{
-	"name": {
-		Type:        framework.TypeString,
-		Description: "Name of the role.",
-	},
-	"policies": {
-		Type:        framework.TypeCommaStringSlice,
-		Description: "Policies to be set on tokens issued using this role.",
-	},
-	"bound_domain": {
-		Type:        framework.TypeString,
-		Description: "The domain users must be a member of to grant this role.",
-	},
-	"bound_groups": {
-		Type:        framework.TypeCommaStringSlice,
-		Description: "Comma separate list of groups, at least one of which the user must be in to grant this role.",
-	},
-	"bound_emails": {
-		Type:        framework.TypeCommaStringSlice,
-		Description: "Comma separate list of usernames, which the user must be in to grant this role.",
-	},
-	// Token Limits
-	"ttl": {
-		Type:    framework.TypeDurationSecond,
-		Default: 0,
-		Description: `
-	Duration in seconds after which the issued token should expire. Defaults to 0,
-	in which case the value will fallback to the system/mount defaults.`,
-	},
-	"max_ttl": {
-		Type:        framework.TypeDurationSecond,
-		Default:     0,
-		Description: "The maximum allowed lifetime of tokens issued using this role.",
-	},
-	"period": {
-		Type:    framework.TypeDurationSecond,
-		Default: 0,
-		Description: `
-	If set, indicates that the token generated using this role should never expire. The token should be renewed within the
-	duration specified by this value. At each renewal, the token's TTL will be set to the value of this parameter.`,
-	},
-}
-
-func (b *backend) pathRoleExistenceCheck(ctx context.Context, req *logical.Request, data *framework.FieldData) (bool, error) {
-	entry, err := b.role(ctx, req.Storage, data.Get("name").(string))
-	if err != nil {
-		return false, err
-	}
-	return entry != nil, nil
-}
-
-func (b *backend) pathRoleDelete(ctx context.Context, req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
-	name := data.Get("name").(string)
-	if name == "" {
-		return logical.ErrorResponse(errEmptyRoleName), nil
-	}
-
-	if err := req.Storage.Delete(ctx, fmt.Sprintf("role/%s", name)); err != nil {
-		return nil, err
-	}
-	return nil, nil
-}
-
-func (b *backend) pathRoleRead(ctx context.Context, req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
-	name := data.Get("name").(string)
-	if name == "" {
-		return logical.ErrorResponse(errEmptyRoleName), nil
-	}
-
-	role, err := b.role(ctx, req.Storage, name)
-	if err != nil {
-		return nil, err
-	} else if role == nil {
-		return nil, nil
-	}
-
-	roleMap := map[string]interface{}{
-		"policies":     role.Policies,
-		"bound_domain": role.BoundDomain,
-		"bound_groups": role.BoundGroups,
-		"bound_emails": role.BoundEmails,
-		"ttl":          string(role.TTL / time.Second),
-		"max_ttl":      string(role.MaxTTL / time.Second),
-		"period":       string(role.Period / time.Second),
-	}
-
-	return &logical.Response{
-		Data: roleMap,
-	}, nil
-}
-
-func (b *backend) pathRoleCreateUpdate(ctx context.Context, req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
-	name := strings.ToLower(data.Get("name").(string))
-	if name == "" {
-		return logical.ErrorResponse(errEmptyRoleName), nil
-	}
-
-	r, err := b.role(ctx, req.Storage, name)
-	if err != nil {
-		return nil, err
-	}
-	if r == nil {
-		r = &role{}
-	}
-
-	if err := r.updateRole(b.System(), req.Operation, data); err != nil {
-		return logical.ErrorResponse(err.Error()), nil
-	}
-	return b.storeRole(ctx, req.Storage, name, r)
-}
-
-func (b *backend) pathRoleList(ctx context.Context, req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
-	roles, err := req.Storage.List(ctx, "role/")
-	if err != nil {
-		return nil, err
-	}
-	return logical.ListResponse(roles), nil
-}
-
-// role reads a role from storage.  Returns nil, nil if the role doesn't exist.
-func (b *backend) role(ctx context.Context, s logical.Storage, name string) (*role, error) {
-	entry, err := s.Get(ctx, fmt.Sprintf("role/%s", name))
-	if err != nil {
-		return nil, err
-	}
-	if entry == nil {
-		return nil, nil
-	}
-
-	role := &role{}
-	if err := entry.DecodeJSON(role); err != nil {
-		return nil, err
-	}
-
-	return role, nil
-}
-
-// storeRole saves the role to storage.
-// The returned response may contain either warnings or an error response,
-// but will be nil if error is not nil
-func (b *backend) storeRole(ctx context.Context, s logical.Storage, roleName string, role *role) (*logical.Response, error) {
-	var resp *logical.Response
-	warnings, err := role.validate(b.System())
-
-	if err != nil {
-		return logical.ErrorResponse(err.Error()), nil
-	}
-	if len(warnings) > 0 {
-		resp = &logical.Response{
-			Warnings: warnings,
-		}
-	}
-
-	entry, err := logical.StorageEntryJSON(fmt.Sprintf("role/%s", roleName), role)
-	if err != nil {
-		return nil, err
-	}
-
-	if err := s.Put(ctx, entry); err != nil {
-		return nil, err
-	}
-
-	return resp, nil
-}
-
 type role struct {
 	// Policies for Vault to assign to authorized entities.
 	Policies []string `json:"policies" structs:"policies" mapstructure:"policies"`
@@ -216,6 +35,195 @@ type role struct {
 	// should be automatically renewed within this time period
 	// with TTL equal to this value.
 	Period time.Duration `json:"period" structs:"period" mapstructure:"period"`
+}
+
+func pathRoles(b *googleAccountAuthBackend) []*framework.Path {
+	role := &framework.Path{
+		Pattern:        fmt.Sprintf("role/%s", framework.GenericNameRegex("name")),
+		ExistenceCheck: b.pathRoleExistenceCheck,
+		Callbacks: ActionCallback{
+			logical.CreateOperation: b.pathRoleCreateUpdate,
+			logical.ReadOperation:   b.pathRoleRead,
+			logical.UpdateOperation: b.pathRoleCreateUpdate,
+			logical.DeleteOperation: b.pathRoleDelete,
+		},
+		HelpSynopsis:    "Create a Google role with associated policies and required attributes.",
+		HelpDescription: pathRolesHelpSyn,
+		Fields: Schema{
+			"name": {
+				Type:        framework.TypeString,
+				Description: "Name of the role.",
+			},
+			"policies": {
+				Type:        framework.TypeCommaStringSlice,
+				Description: "Policies to be set on tokens issued using this role.",
+			},
+			"bound_domain": {
+				Type:        framework.TypeString,
+				Description: "The domain users must be a member of to grant this role.",
+			},
+			"bound_groups": {
+				Type:        framework.TypeCommaStringSlice,
+				Description: "Comma separate list of groups, at least one of which the user must be in to grant this role.",
+			},
+			"bound_emails": {
+				Type:        framework.TypeCommaStringSlice,
+				Description: "Comma separate list of usernames, which the user must be in to grant this role.",
+			},
+			"ttl": {
+				Type:        framework.TypeDurationSecond,
+				Default:     0,
+				Description: "Duration in seconds after which the issued token should expire. Defaults to 0, in which case the value will fallback to the system/mount defaults.",
+			},
+			"max_ttl": {
+				Type:        framework.TypeDurationSecond,
+				Default:     0,
+				Description: "The maximum allowed lifetime of tokens issued using this role.",
+			},
+			"period": {
+				Type:    framework.TypeDurationSecond,
+				Default: 0,
+				Description: `
+            If set, indicates that the token generated using this role should never expire. The token should be renewed within the
+            duration specified by this value. At each renewal, the token's TTL will be set to the value of this parameter.`,
+			},
+		},
+	}
+
+	roles := &framework.Path{
+		Pattern:         "roles/?",
+		Callbacks:       ActionCallback{logical.ListOperation: b.pathRoleList},
+		HelpSynopsis:    pathListRolesHelpSyn,
+		HelpDescription: pathListRolesHelpDesc,
+	}
+
+	return []*framework.Path{role, roles}
+}
+
+func (b *googleAccountAuthBackend) pathRoleExistenceCheck(ctx context.Context, req *logical.Request, data *framework.FieldData) (bool, error) {
+	entry, err := b.role(ctx, req.Storage, data.Get("name").(string))
+	if err != nil {
+		return false, err
+	}
+
+	return entry != nil, nil
+}
+
+func (b *googleAccountAuthBackend) pathRoleDelete(ctx context.Context, req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
+	name := data.Get("name").(string)
+	if name == "" {
+		return logical.ErrorResponse(errEmptyRoleName), nil
+	}
+
+	if err := req.Storage.Delete(ctx, fmt.Sprintf("role/%s", name)); err != nil {
+		return nil, err
+	}
+
+	return nil, nil
+}
+
+func (b *googleAccountAuthBackend) pathRoleRead(ctx context.Context, req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
+	name := data.Get("name").(string)
+	if name == "" {
+		return logical.ErrorResponse(errEmptyRoleName), nil
+	}
+
+	role, err := b.role(ctx, req.Storage, name)
+	if err != nil {
+		return nil, err
+	} else if role == nil {
+		return nil, nil
+	}
+
+	roleMap := GenericMap{
+		"policies":     role.Policies,
+		"bound_domain": role.BoundDomain,
+		"bound_groups": role.BoundGroups,
+		"bound_emails": role.BoundEmails,
+		"ttl":          fmt.Sprint(role.TTL / time.Second),
+		"max_ttl":      fmt.Sprint(role.MaxTTL / time.Second),
+		"period":       fmt.Sprint(role.Period / time.Second),
+	}
+
+	return &logical.Response{Data: roleMap}, nil
+}
+
+func (b *googleAccountAuthBackend) pathRoleCreateUpdate(ctx context.Context, req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
+	name := strings.ToLower(data.Get("name").(string))
+	if name == "" {
+		return logical.ErrorResponse(errEmptyRoleName), nil
+	}
+
+	r, err := b.role(ctx, req.Storage, name)
+	if err != nil {
+		return nil, err
+	}
+
+	if r == nil {
+		r = &role{}
+	}
+
+	if err := r.updateRole(b.System(), req.Operation, data); err != nil {
+		return logical.ErrorResponse(err.Error()), nil
+	}
+
+	return b.storeRole(ctx, req.Storage, name, r)
+}
+
+func (b *googleAccountAuthBackend) pathRoleList(ctx context.Context, req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
+	roles, err := req.Storage.List(ctx, "role/")
+	if err != nil {
+		return nil, err
+	}
+
+	return logical.ListResponse(roles), nil
+}
+
+// role reads a role from storage.  Returns nil, nil if the role doesn't exist.
+func (b *googleAccountAuthBackend) role(ctx context.Context, s logical.Storage, name string) (*role, error) {
+	entry, err := s.Get(ctx, fmt.Sprintf("role/%s", name))
+	if err != nil {
+		return nil, err
+	}
+
+	if entry == nil {
+		return nil, nil
+	}
+
+	role := &role{}
+	if err := entry.DecodeJSON(role); err != nil {
+		return nil, err
+	}
+
+	return role, nil
+}
+
+// storeRole saves the role to storage.
+// The returned response may contain either warnings or an error response,
+// but will be nil if error is not nil
+func (b *googleAccountAuthBackend) storeRole(ctx context.Context, s logical.Storage, roleName string, role *role) (*logical.Response, error) {
+	var resp *logical.Response
+	warnings, err := role.validate(b.System())
+
+	if err != nil {
+		return logical.ErrorResponse(err.Error()), nil
+	}
+	if len(warnings) > 0 {
+		resp = &logical.Response{
+			Warnings: warnings,
+		}
+	}
+
+	entry, err := logical.StorageEntryJSON(fmt.Sprintf("role/%s", roleName), role)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := s.Put(ctx, entry); err != nil {
+		return nil, err
+	}
+
+	return resp, nil
 }
 
 // Update updates the given role with values parsed/validated from given FieldData.
@@ -305,3 +313,17 @@ func (role *role) validate(sys logical.SystemView) (warnings []string, err error
 
 	return warnings, nil
 }
+
+const pathRolesHelpSyn = `
+A role is required to login under the Google auth backend. A role binds Vault policies and has
+required attributes that an authenticating entity must fulfill to login against this role.
+After authenticating the instance, Vault uses the bound policies to determine which resources
+the authorization token for the instance can access.
+`
+
+const (
+	pathListRolesHelpSyn  = "Lists all the roles that are registered with Vault."
+	pathListRolesHelpDesc = "Lists all roles under the Google backends by name."
+	errEmptyRoleName      = "role name is required"
+	errEmptyDomain        = "bound domain cannot be empty"
+)

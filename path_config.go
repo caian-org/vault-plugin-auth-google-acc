@@ -3,52 +3,55 @@ package gaccauth
 import (
 	"context"
 	"fmt"
-	"strings"
-
-	"golang.org/x/oauth2"
-	"golang.org/x/oauth2/google"
 
 	"github.com/hashicorp/vault/sdk/framework"
 	"github.com/hashicorp/vault/sdk/logical"
 )
 
-const (
-	configPath                                = "config"
-	clientIDConfigPropertyName                = "client_id"
-	clientSecretConfigPropertyName            = "client_secret"
-	clientOAuthRedirectURLPropertyName        = "redirect_url"
-	clientFetchGroupsConfigPropertyName       = "fetch_groups"
-	clientServiceAccountKeyConfigPropertyName = "service_acc_key"
-	clientDelegationUserConfigPropertyName    = "delegation_user"
-	configEntry                               = "config"
-)
-
-type config struct {
-	ClientID       string `json:"client_id"`
-	ClientSecret   string `json:"client_secret"`
-	RedirectURL    string `json:"redirect_url"`
-	FetchGroups    bool   `json:"fetch_groups"`
-	ServiceAccount string `json:"service_acc_key"`
-	DelegationUser string `json:"delegation_user"`
+func pathConfig(b *googleAccountAuthBackend) *framework.Path {
+	return &framework.Path{
+		Pattern: pathConfigPattern,
+		Callbacks: ActionCallback{
+			logical.UpdateOperation: b.pathConfigWrite,
+			logical.ReadOperation:   b.pathConfigRead,
+		},
+		Fields: Schema{
+			clientIDConfigProp: {
+				Type:        framework.TypeString,
+				Description: "Google OAuth client id",
+			},
+			clientSecretConfigProp: {
+				Type:        framework.TypeString,
+				Description: "Google OAuth client secret",
+			},
+			clientOAuthRedirectURLProp: {
+				Type:        framework.TypeString,
+				Description: "Google OAuth redirect URL",
+			},
+			clientFetchGroupsConfigProp: {
+				Type:        framework.TypeBool,
+				Description: "Google fetch groups",
+			},
+			clientServiceAccountKeyConfigProp: {
+				Type:        framework.TypeString,
+				Description: "Google service account key content",
+			},
+			clientDelegationUserConfigProp: {
+				Type:        framework.TypeString,
+				Description: "Google delegation email address",
+			},
+		},
+	}
 }
 
-func (b *backend) pathConfigWrite(ctx context.Context, req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
-	var (
-		clientID       = data.Get(clientIDConfigPropertyName).(string)
-		clientSecret   = data.Get(clientSecretConfigPropertyName).(string)
-		redirectURL    = data.Get(clientOAuthRedirectURLPropertyName).(string)
-		fetchGroups    = data.Get(clientFetchGroupsConfigPropertyName).(bool)
-		serviceAccount = data.Get(clientServiceAccountKeyConfigPropertyName).(string)
-		delegationUser = data.Get(clientDelegationUserConfigPropertyName).(string)
-	)
-
-	entry, err := logical.StorageEntryJSON(configEntry, config{
-		ClientID:       clientID,
-		ClientSecret:   clientSecret,
-		RedirectURL:    redirectURL,
-		FetchGroups:    fetchGroups,
-		ServiceAccount: serviceAccount,
-		DelegationUser: delegationUser,
+func (b *googleAccountAuthBackend) pathConfigWrite(ctx context.Context, req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
+	entry, err := logical.StorageEntryJSON(pathConfigEntry, googleAuth{
+		ClientID:       data.Get(clientIDConfigProp).(string),
+		ClientSecret:   data.Get(clientSecretConfigProp).(string),
+		RedirectURL:    data.Get(clientOAuthRedirectURLProp).(string),
+		FetchGroups:    data.Get(clientFetchGroupsConfigProp).(bool),
+		ServiceAccount: data.Get(clientServiceAccountKeyConfigProp).(string),
+		DelegationUser: data.Get(clientDelegationUserConfigProp).(string),
 	})
 
 	if err != nil {
@@ -58,7 +61,7 @@ func (b *backend) pathConfigWrite(ctx context.Context, req *logical.Request, dat
 	return nil, req.Storage.Put(ctx, entry)
 }
 
-func (b *backend) pathConfigRead(ctx context.Context, req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
+func (b *googleAccountAuthBackend) pathConfigRead(ctx context.Context, req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
 	config, err := b.config(ctx, req.Storage)
 
 	if err != nil {
@@ -69,21 +72,21 @@ func (b *backend) pathConfigRead(ctx context.Context, req *logical.Request, data
 		return nil, nil
 	}
 
-	configMap := map[string]interface{}{
-		clientIDConfigPropertyName:                config.ClientID,
-		clientSecretConfigPropertyName:            config.ClientSecret,
-		clientOAuthRedirectURLPropertyName:        config.RedirectURL,
-		clientFetchGroupsConfigPropertyName:       config.FetchGroups,
-		clientServiceAccountKeyConfigPropertyName: config.ServiceAccount,
-		clientDelegationUserConfigPropertyName:    config.DelegationUser,
+	configMap := GenericMap{
+		clientIDConfigProp:                config.ClientID,
+		clientSecretConfigProp:            config.ClientSecret,
+		clientOAuthRedirectURLProp:        config.RedirectURL,
+		clientFetchGroupsConfigProp:       config.FetchGroups,
+		clientServiceAccountKeyConfigProp: config.ServiceAccount,
+		clientDelegationUserConfigProp:    config.DelegationUser,
 	}
 
 	return &logical.Response{Data: configMap}, nil
 }
 
 // Config returns the configuration for this backend.
-func (b *backend) config(ctx context.Context, s logical.Storage) (*config, error) {
-	entry, err := s.Get(ctx, configEntry)
+func (b *googleAccountAuthBackend) config(ctx context.Context, s logical.Storage) (*googleAuth, error) {
+	entry, err := s.Get(ctx, pathConfigEntry)
 
 	if err != nil {
 		return nil, err
@@ -93,7 +96,7 @@ func (b *backend) config(ctx context.Context, s logical.Storage) (*config, error
 		return nil, nil
 	}
 
-	var result config
+	var result googleAuth
 	if err := entry.DecodeJSON(&result); err != nil {
 		return nil, fmt.Errorf("error reading configuration: %s", err)
 	}
@@ -101,21 +104,13 @@ func (b *backend) config(ctx context.Context, s logical.Storage) (*config, error
 	return &result, nil
 }
 
-func (c *config) oauth2Config() *oauth2.Config {
-	oauthRedirectURL := c.RedirectURL
-	if len(strings.TrimSpace(oauthRedirectURL)) == 0 {
-		oauthRedirectURL = "urn:ietf:wg:oauth:2.0:oob"
-	}
-
-	config := &oauth2.Config{
-		ClientID:     c.ClientID,
-		ClientSecret: c.ClientSecret,
-		Endpoint:     google.Endpoint,
-		RedirectURL:  oauthRedirectURL,
-		Scopes: []string{
-			"https://www.googleapis.com/auth/userinfo.email",
-		},
-	}
-
-	return config
-}
+const (
+	clientDelegationUserConfigProp    = "delegation_user"
+	clientFetchGroupsConfigProp       = "fetch_groups"
+	clientIDConfigProp                = "client_id"
+	clientOAuthRedirectURLProp        = "redirect_url"
+	clientSecretConfigProp            = "client_secret"
+	clientServiceAccountKeyConfigProp = "service_acc_key"
+	pathConfigEntry                   = "config"
+	pathConfigPattern                 = "config"
+)

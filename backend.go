@@ -2,7 +2,6 @@ package gaccauth
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/hashicorp/vault/sdk/framework"
 	"github.com/hashicorp/vault/sdk/logical"
@@ -12,21 +11,12 @@ type ActionCallback map[logical.Operation]framework.OperationFunc
 
 type Schema map[string]*framework.FieldSchema
 
-type backend struct {
-	Map *framework.PolicyMap
+type googleAccountAuthBackend struct {
 	*framework.Backend
 }
 
-const googleBackendHelp = `
-The Google credential provider allows you to authenticate with Google.
-
-Documentation can be found at https://github.com/erozario/vault-auth-google.
-`
-
-// Factory for Google backend.
 func Factory(ctx context.Context, conf *logical.BackendConfig) (logical.Backend, error) {
 	b := newBackend()
-
 	if err := b.Setup(ctx, conf); err != nil {
 		return nil, err
 	}
@@ -34,120 +24,33 @@ func Factory(ctx context.Context, conf *logical.BackendConfig) (logical.Backend,
 	return b, nil
 }
 
-// Backend for google
-func newBackend() *backend {
-	b := &backend{}
+func newBackend() *googleAccountAuthBackend {
+	b := &googleAccountAuthBackend{}
 
 	b.Backend = &framework.Backend{
 		BackendType: logical.TypeCredential,
 		AuthRenew:   b.authRenew,
-		Help:        googleBackendHelp,
 
 		PathsSpecial: &logical.Paths{
 			Unauthenticated: []string{
-				loginPath,
-				codeURLPath,
+				pathLoginPattern,
+				pathCodeUrlPattern,
 			},
 		},
 
-		Paths: append([]*framework.Path{
-			{
-				Pattern: configPath,
-				Fields: Schema{
-					clientIDConfigPropertyName: {
-						Type:        framework.TypeString,
-						Description: "Google OAuth client id",
-					},
-					clientSecretConfigPropertyName: {
-						Type:        framework.TypeString,
-						Description: "Google OAuth client secret",
-					},
-					clientOAuthRedirectURLPropertyName: {
-						Type:        framework.TypeString,
-						Description: "Google OAuth redirect URL",
-					},
-					clientFetchGroupsConfigPropertyName: {
-						Type:        framework.TypeBool,
-						Description: "Google fetch groups",
-					},
-					clientServiceAccountKeyConfigPropertyName: {
-						Type:        framework.TypeString,
-						Description: "Google service account key content",
-					},
-					clientDelegationUserConfigPropertyName: {
-						Type:        framework.TypeString,
-						Description: "Google delegation email address",
-					},
-				},
-
-				Callbacks: ActionCallback{
-					logical.UpdateOperation: b.pathConfigWrite,
-					logical.ReadOperation:   b.pathConfigRead,
-				},
+		Paths: framework.PathAppend(
+			[]*framework.Path{
+				pathConfig(b),
+				pathLogin(b),
+				pathCodeUrl(b),
 			},
+			pathRoles(b),
+		),
 
-			{
-				Pattern: loginPath,
-				Fields: Schema{
-					googleAuthCodeParameterName: {
-						Type:        framework.TypeString,
-						Description: "Google authentication code. Required.",
-					},
-					roleParameterName: {
-						Type:        framework.TypeString,
-						Description: "Name of the role against which the login is being attempted. Required.",
-					},
-				},
-
-				Callbacks: ActionCallback{
-					logical.UpdateOperation:         b.pathLogin,
-					logical.AliasLookaheadOperation: b.pathLogin,
-				},
-			},
-
-			{
-				Pattern: codeURLPath,
-				Fields:  Schema{},
-				Callbacks: ActionCallback{
-					logical.ReadOperation: b.pathCodeURL,
-				},
-			},
-
-			// CRUD for roles.
-			{
-				Pattern:        fmt.Sprintf("role/%s", framework.GenericNameRegex("name")),
-				Fields:         roleFieldSchema,
-				ExistenceCheck: b.pathRoleExistenceCheck,
-				Callbacks: ActionCallback{
-					logical.CreateOperation: b.pathRoleCreateUpdate,
-					logical.ReadOperation:   b.pathRoleRead,
-					logical.UpdateOperation: b.pathRoleCreateUpdate,
-					logical.DeleteOperation: b.pathRoleDelete,
-				},
-				HelpSynopsis:    pathRoleHelpSyn,
-				HelpDescription: pathRoleHelpDesc,
-			},
-
-			// Paths for listing roles
-			{
-				Pattern: "role/?",
-				Callbacks: ActionCallback{
-					logical.ListOperation: b.pathRoleList,
-				},
-
-				HelpSynopsis:    pathListRolesHelpSyn,
-				HelpDescription: pathListRolesHelpDesc,
-			},
-			{
-				Pattern: "roles/?",
-				Callbacks: ActionCallback{
-					logical.ListOperation: b.pathRoleList,
-				},
-
-				HelpSynopsis:    pathListRolesHelpSyn,
-				HelpDescription: pathListRolesHelpDesc,
-			},
-		}),
+		Help: `
+            The Google credential provider allows you to authenticate with Google.
+            Documentation can be found at https://github.com/erozario/vault-auth-google.
+        `,
 	}
 
 	return b

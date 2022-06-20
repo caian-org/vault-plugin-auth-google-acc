@@ -3,7 +3,7 @@ package main
 import (
 	"os"
 
-	google "github.com/caian-org/vault-plugin-auth-google-acc"
+	googleAccountAuth "github.com/caian-org/vault-plugin-auth-google-acc"
 	"github.com/hashicorp/go-hclog"
 	"github.com/hashicorp/vault/api"
 	"github.com/hashicorp/vault/sdk/plugin"
@@ -23,7 +23,7 @@ func main() {
 	tlsProviderFunc := api.VaultPluginTLSProvider(tlsConfig)
 
 	err := plugin.Serve(&plugin.ServeOpts{
-		BackendFactoryFunc: google.Factory,
+		BackendFactoryFunc: googleAccountAuth.Factory,
 		TLSProviderFunc:    tlsProviderFunc,
 	})
 

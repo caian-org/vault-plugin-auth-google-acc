@@ -7,6 +7,8 @@ import (
 	"golang.org/x/oauth2"
 )
 
+type GenericMap map[string]interface{}
+
 func strSliceEquals(a, b []string) bool {
 	sort.Strings(a)
 	sort.Strings(b)
