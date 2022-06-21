@@ -2,8 +2,8 @@ version: '3.8'
 
 services:
   vault-server:
-    image: ${VAULT_PLUGIN_IMAGE}
-    container_name: ${VAULT_PLUGIN_IMAGE}
+    image: ${VAULT_PLUGIN_NAME}
+    container_name: ${VAULT_PLUGIN_NAME}
     build:
       context: ./plugin
       dockerfile: .docker/Dockerfile
@@ -16,8 +16,8 @@ services:
       - ./plugin/.docker/config:/vault/config
       - ./plugin/.docker/data:/vault/data
       - ./plugin/.docker/logs:/vault/logs
-    env_file:
-      - ./.env
+    environment:
+      VAULT_ADDR: 'http://127.0.0.1:${VAULT_SERVER_PORT}'
 
 networks:
   vnet:
