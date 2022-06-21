@@ -1,0 +1,25 @@
+version: '3.8'
+
+services:
+  vault-server:
+    image: ${VAULT_PLUGIN_IMAGE}
+    container_name: ${VAULT_PLUGIN_IMAGE}
+    build:
+      context: ./plugin
+      dockerfile: .docker/Dockerfile
+    command: server
+    ports:
+      - ${VAULT_SERVER_PORT}:${VAULT_SERVER_PORT}
+    networks:
+      - vnet
+    volumes:
+      - ./plugin/.docker/config:/vault/config
+      - ./plugin/.docker/data:/vault/data
+      - ./plugin/.docker/logs:/vault/logs
+    env_file:
+      - ./.env
+
+networks:
+  vnet:
+    name: vnet
+    external: true
