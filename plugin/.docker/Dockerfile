@@ -29,4 +29,4 @@ RUN make container-binary
 
 FROM vault:1.9.7 as vault
 COPY --from=plugin-build "/go/plugin/bin/${PLUGIN_PATH}" /etc/vault/plugins
-RUN chown vault:vault "/etc/vault/plugins${PLUGIN_PATH}"
+RUN chown vault:vault "/etc/vault/plugins/${PLUGIN_PATH}"

@@ -1,0 +1,12 @@
+# let's ignore everything here
+*
+!*/
+
+# except...
+
+!/Dockerfile
+!/config/*.hcl
+!/data/.git-keep
+!/logs/.git-keep
+
+!.gitignore
