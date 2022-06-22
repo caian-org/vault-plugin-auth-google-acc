@@ -1,0 +1,17 @@
+[master]
+
+disable=
+    missing-module-docstring,
+    missing-class-docstring,
+    missing-function-docstring,
+    too-few-public-methods,
+
+[similarities]
+
+min-similarity-lines=5
+ignore-comments=yes
+ignore-docstrings=yes
+ignore-imports=yes
+
+[format]
+max-line-length=120

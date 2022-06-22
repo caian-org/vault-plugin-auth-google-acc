@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html>
+
+    <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+        <title>MZ Vault SSO</title>
+
+        <link rel="shortcut icon" type="image/png" href="/static/img/favicon.png"/>
+        <link href="https://stackpath.bootstrapcdn.com/bootswatch/4.1.2/cyborg/bootstrap.min.css"
+              rel="stylesheet"
+              integrity="sha384-OmOp86QQ0vXZpbcbCUXY4FUgU4IySB1L/5gTR4+tAaceD3KPF53+rCmQYSBnu++A"
+              crossorigin="anonymous">
+
+        <style type="text/css">
+            .jumbotron.centered {
+                position: fixed;
+                top: 50%;
+                left: 50%;
+                transform: translate(-50%, -50%);
+            }
+        </style>
+    </head>
+
+    <body>
+
+        <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+            <a class="navbar-brand" href="#">MZ Vault SSO</a>
+        </nav>
+
+        <div class="centered jumbotron">
+            {% block content %}{% endblock %}
+        </div>
+
+    {% block scripts %}{% endblock%}
+
+    </body>
+
+</html>
