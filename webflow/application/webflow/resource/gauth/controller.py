@@ -1,15 +1,24 @@
+# modules
 from webflow.resource._shared.controller import Controller
 from webflow.resource._shared.exception import VaultConnectionError
+from webflow.resource._shared.exception import VaultInvalidRequestError
 
 
 class VaultGetGoogleOAuthLinkHandler(Controller):
     def get(self):
         try:
-            oauth_url = self.service.vault.get_google_oauth_url()
-            return self.redirect_to(oauth_url)
+            res = self.service.vault.get_google_oauth_url()
+            url = res['data']['url']
+
+            return self.redirect_to(url)
 
         except VaultConnectionError:
-            return self.error.connection_error
+            return self.error.connection_error('A001')
 
-        finally:
-            v.logout()
+        except VaultInvalidRequestError:
+            # plugin is enabled but the configuration has not been written
+            return self.error.incorrectly_configured('A002')
+
+        except (TypeError, KeyError):
+            # plugin is probably not enabled/mounted
+            return self.error.incorrectly_configured('A003')

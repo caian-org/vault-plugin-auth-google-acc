@@ -5,17 +5,17 @@ from flask import render_template
 
 
 class ErrorResponse:
-    def _renderr(self, msg: str) -> Response:
-        return make_response(render_template('error.html', message=msg))
+    def _rd(self, code: str, msg: str) -> Response:
+        return make_response(render_template('error.html', code=code, message=msg.capitalize()))
 
-    @property
-    def connection_error(self):
-        return self._renderr('Could not connect to Vault server')
+    def connection_error(self, code: str):
+        return self._rd(code, 'unreacheable server')
 
-    @property
-    def forbidden(self):
-        return self._renderr('Vault refused connection')
+    def incorrectly_configured(self, code: str):
+        return self._rd(code, 'incorrectly configured server')
 
-    @property
-    def invalid_request(self):
-        return self._renderr('Authenticated Google account is not authorized to use the selected role')
+    def forbidden(self, code: str):
+        return self._rd(code, 'incorrectly configured server')
+
+    def invalid_request(self, code: str):
+        return self._rd(code, 'authenticated Google account is not authorized to use the selected role')

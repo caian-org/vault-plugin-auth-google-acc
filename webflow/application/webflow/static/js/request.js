@@ -1,23 +1,27 @@
-const makeRequest = () => {
-    const form = document.createElement('form');
-    form.method = 'POST';
-    form.action = getHostname(window.location.href) + '/write';
+function getPayloadData () {
+  const queryParams = new URLSearchParams(window.location.search);
 
-    document.body.appendChild(form);
+  return {
+    code: decodeURIComponent(queryParams.get('code')),
+    role: document.getElementById('role-list').value
+  }
+}
 
-    data = {
-        code: decodeURIComponent(getParameter('code')),
-        role: document.getElementById('role-list').value
-    }
+function makeRequest () {
+  const form = document.createElement('form');
+  form.method = 'POST';
+  form.action = '/login';
 
-    for(let key in data) {
-        let input = document.createElement('input');
-        input.type = 'hidden';
-        input.name = key;
-        input.value = data[key];
+  const data = getPayloadData();
+  Object.keys(data).forEach((key) => {
+    const input = document.createElement('input');
+    input.type = 'hidden';
+    input.name = key;
+    input.value = data[key];
 
-        form.appendChild(input);
-    }
+    form.appendChild(input);
+  })
 
-    form.submit();
+  document.body.appendChild(form);
+  form.submit();
 }

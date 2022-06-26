@@ -1,28 +1,22 @@
 {% extends 'base.html' %}
 
 {% block content %}
+      <p align="center"><img src="/static/img/vault.png"></p>
+      <hr class="my-4">
+      <p>Auth flow finished. Copy the token below to access Vault.</p>
 
-            <p align="center"><img src="/static/img/vault.png"></p>
-            <hr class="my-4">
-            <p>Auth flow finished. Copy the token below to access Vault.</p>
-
-            <div class="input-group">
-                <input type="text"
-                       value="{{ token }}"
-                       class="custom form-control"
-                       placeholder="Default input"
-                       id="token-txtbox">
-                <span class="input-group-btn">
-                    <button type="button"
-                            id="copy-btn"
-                            class="btn btn-link">Copy</button>
-                </span>
-            </div>
-
+      <div class="input-group">
+        <input type="text"
+             value="{{ token }}"
+             class="custom form-control"
+             placeholder="Default input"
+             id="token-txtbox">
+        <span class="input-group-btn">
+          <button type="button" id="copy-btn" class="btn btn-link">Copy</button>
+        </span>
+      </div>
 {% endblock %}
 
 {% block scripts %}
-
-        <script src="/static/js/clipboard.js"></script>
-
+    <script src="/static/js/clipboard.js"></script>
 {% endblock %}

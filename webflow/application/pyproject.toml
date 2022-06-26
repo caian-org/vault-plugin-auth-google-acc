@@ -2,7 +2,7 @@
 name        = "vault-auth-google-webflow-service"
 version     = "0.1.0"
 description = ""
-authors     = ["Caian R. Ertl <caian.ertl@mzgroup.com>"]
+authors     = ["Caian Ertl <hi@caian.org>"]
 license     = "CC0-1.0"
 
 [tool.poetry.dependencies]
@@ -15,7 +15,6 @@ hvac          = "0.11.2"
 bandit       = "1.7.4"
 black        = "22.3.0"
 jedi         = "0.18.1"
-mypy         = "0.961"
 poethepoet   = "0.14.0"
 pylint       = "2.14.3"
 pytest       = "7.1.2"
@@ -25,14 +24,12 @@ vulture      = "2.4"
 watchdog     = "2.1.9"
 
 [tool.poe.tasks]
-"start"          = "python webflow"
-"start:watch"    = "watchmedo auto-restart -p '*.py' -R poetry run poe start:dev"
-"check:all"      = "sh .scripts/check-all.sh"
+"start"          = "python -m webflow"
+"start:watch"    = "watchmedo auto-restart -p '*.py' -R poetry run poe start"
 "check:deadcode" = "vulture webflow"
 "check:lint"     = "pylint --fail-under 9 --rcfile .pylintrc --output-format colorized --verbose webflow"
-"check:security" = "bandit --exclude webflow/test -r webflow"
+"check:security" = "bandit -r webflow"
 "check:style"    = "black -t py39 -l 120 -S --check webflow"
-"check:types"    = "mypy webflow"
 "fix:imports"    = "isort --sl webflow/**/*.py"
 "fix:style"      = "black -t py39 -l 120 -S webflow"
 
