@@ -2,7 +2,6 @@ package gaccauth
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -12,96 +11,82 @@ import (
 	"github.com/hashicorp/vault/sdk/logical"
 )
 
-type role struct {
-	// Policies for Vault to assign to authorized entities.
-	Policies []string `json:"policies" structs:"policies" mapstructure:"policies"`
+const (
+	pathRolesNameProp        = "name"
+	pathRolesPoliciesProp    = "policies"
+	pathRolesBoundEmailsProp = "bound_emails"
+	pathRolesBoundGroupsProp = "bound_groups"
+	pathRolesMaxTTLProp      = "max_ttl"
+	pathRolesTTLProp         = "ttl"
+	errEmptyRoleName         = "role name is required"
+)
 
-	// Domain for authorized entities.
-	BoundDomain string `json:"domain" structs:"domain" mapstructure:"domain"`
+const pathRolesHelpSyn = `
+A role is required to login under the Google auth backend. A role binds Vault policies and has required attributes that
+an authenticating entity must fulfill to login against this role. After authenticating the instance, Vault uses the
+bound policies to determine which resources the authorization token for the instance can access.
+`
 
-	// BoundGroups that users must belong to in order to login under this role.
-	BoundGroups []string `json:"bound_groups" structs:"bound_groups" mapstructure:"bound_groups"`
-
-	// BoundUsers that are allowed to use this role.
-	BoundEmails []string `json:"bound_emails" structs:"bound_emails" mapstructure:"bound_emails"`
-
-	// TTL of Vault auth leases under this role.
-	TTL time.Duration `json:"ttl" structs:"ttl" mapstructure:"ttl"`
-
-	// Max total TTL including renewals, of Vault auth leases under this role.
-	MaxTTL time.Duration `json:"max_ttl" structs:"max_ttl" mapstructure:"max_ttl"`
-
-	// Period, If set, indicates that this token should not expire and
-	// should be automatically renewed within this time period
-	// with TTL equal to this value.
-	Period time.Duration `json:"period" structs:"period" mapstructure:"period"`
+type googleAuthRole struct {
+	Policies    []string      `json:"policies" structs:"policies" mapstructure:"policies"`
+	BoundGroups []string      `json:"bound_groups" structs:"bound_groups" mapstructure:"bound_groups"`
+	BoundEmails []string      `json:"bound_emails" structs:"bound_emails" mapstructure:"bound_emails"`
+	TTL         time.Duration `json:"ttl" structs:"ttl" mapstructure:"ttl"`
+	MaxTTL      time.Duration `json:"max_ttl" structs:"max_ttl" mapstructure:"max_ttl"`
 }
 
 func pathRoles(b *googleAccountAuthBackend) []*framework.Path {
 	role := &framework.Path{
-		Pattern:        fmt.Sprintf("role/%s", framework.GenericNameRegex("name")),
-		ExistenceCheck: b.pathRoleExistenceCheck,
-		Callbacks: ActionCallback{
-			logical.CreateOperation: b.pathRoleCreateUpdate,
-			logical.ReadOperation:   b.pathRoleRead,
-			logical.UpdateOperation: b.pathRoleCreateUpdate,
-			logical.DeleteOperation: b.pathRoleDelete,
-		},
+		Pattern:         fmt.Sprintf("role/%s", framework.GenericNameRegex("name")),
 		HelpSynopsis:    "Create a Google role with associated policies and required attributes.",
 		HelpDescription: pathRolesHelpSyn,
+		ExistenceCheck:  b.pathRoleExistenceCheck,
 		Fields: Schema{
-			"name": {
+			pathRolesNameProp: {
 				Type:        framework.TypeString,
 				Description: "Name of the role.",
 			},
-			"policies": {
+			pathRolesPoliciesProp: {
 				Type:        framework.TypeCommaStringSlice,
 				Description: "Policies to be set on tokens issued using this role.",
 			},
-			"bound_domain": {
-				Type:        framework.TypeString,
-				Description: "The domain users must be a member of to grant this role.",
-			},
-			"bound_groups": {
+			pathRolesBoundGroupsProp: {
 				Type:        framework.TypeCommaStringSlice,
 				Description: "Comma separate list of groups, at least one of which the user must be in to grant this role.",
 			},
-			"bound_emails": {
+			pathRolesBoundEmailsProp: {
 				Type:        framework.TypeCommaStringSlice,
 				Description: "Comma separate list of usernames, which the user must be in to grant this role.",
 			},
-			"ttl": {
+			pathRolesTTLProp: {
 				Type:        framework.TypeDurationSecond,
-				Default:     0,
-				Description: "Duration in seconds after which the issued token should expire. Defaults to 0, in which case the value will fallback to the system/mount defaults.",
+				Description: "Duration in seconds after which the issued token should expire.",
 			},
-			"max_ttl": {
+			pathRolesMaxTTLProp: {
 				Type:        framework.TypeDurationSecond,
-				Default:     0,
 				Description: "The maximum allowed lifetime of tokens issued using this role.",
 			},
-			"period": {
-				Type:    framework.TypeDurationSecond,
-				Default: 0,
-				Description: `
-            If set, indicates that the token generated using this role should never expire. The token should be renewed within the
-            duration specified by this value. At each renewal, the token's TTL will be set to the value of this parameter.`,
-			},
+		},
+		Callbacks: ActionCallback{
+			logical.CreateOperation: b.pathRoleUpsert,
+			logical.ReadOperation:   b.pathRoleRead,
+			logical.UpdateOperation: b.pathRoleUpsert,
+			logical.DeleteOperation: b.pathRoleDelete,
 		},
 	}
 
 	roles := &framework.Path{
-		Pattern:         "roles/?",
+		Pattern:         "role/?",
+		HelpSynopsis:    "Lists all the roles that are registered with Vault.",
+		HelpDescription: "Lists all roles under the Google backend by name.",
 		Callbacks:       ActionCallback{logical.ListOperation: b.pathRoleList},
-		HelpSynopsis:    pathListRolesHelpSyn,
-		HelpDescription: pathListRolesHelpDesc,
 	}
 
 	return []*framework.Path{role, roles}
 }
 
 func (b *googleAccountAuthBackend) pathRoleExistenceCheck(ctx context.Context, req *logical.Request, data *framework.FieldData) (bool, error) {
-	entry, err := b.role(ctx, req.Storage, data.Get("name").(string))
+	entry, err := b.getDecodedRole(ctx, req.Storage, data.Get(pathRolesNameProp).(string))
 	if err != nil {
 		return false, err
 	}
@@ -110,7 +95,7 @@ func (b *googleAccountAuthBackend) pathRoleExistenceCheck(ctx context.Context, r
 }
 
 func (b *googleAccountAuthBackend) pathRoleDelete(ctx context.Context, req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
-	name := data.Get("name").(string)
+	name := data.Get(pathRolesNameProp).(string)
 	if name == "" {
 		return logical.ErrorResponse(errEmptyRoleName), nil
 	}
@@ -122,52 +107,35 @@ func (b *googleAccountAuthBackend) pathRoleDelete(ctx context.Context, req *logi
 	return nil, nil
 }
 
-func (b *googleAccountAuthBackend) pathRoleRead(ctx context.Context, req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
-	name := data.Get("name").(string)
+func (b *googleAccountAuthBackend) pathRoleUpsert(ctx context.Context, req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
+	name := strings.ToLower(data.Get(pathRolesNameProp).(string))
 	if name == "" {
 		return logical.ErrorResponse(errEmptyRoleName), nil
 	}
 
-	role, err := b.role(ctx, req.Storage, name)
-	if err != nil {
-		return nil, err
-	} else if role == nil {
-		return nil, nil
-	}
-
-	roleMap := GenericMap{
-		"policies":     role.Policies,
-		"bound_domain": role.BoundDomain,
-		"bound_groups": role.BoundGroups,
-		"bound_emails": role.BoundEmails,
-		"ttl":          fmt.Sprint(role.TTL / time.Second),
-		"max_ttl":      fmt.Sprint(role.MaxTTL / time.Second),
-		"period":       fmt.Sprint(role.Period / time.Second),
-	}
-
-	return &logical.Response{Data: roleMap}, nil
-}
-
-func (b *googleAccountAuthBackend) pathRoleCreateUpdate(ctx context.Context, req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
-	name := strings.ToLower(data.Get("name").(string))
-	if name == "" {
-		return logical.ErrorResponse(errEmptyRoleName), nil
-	}
-
-	r, err := b.role(ctx, req.Storage, name)
+	r, err := b.getDecodedRole(ctx, req.Storage, name)
 	if err != nil {
 		return nil, err
 	}
 
 	if r == nil {
-		r = &role{}
+		r = &googleAuthRole{}
 	}
 
-	if err := r.updateRole(b.System(), req.Operation, data); err != nil {
+	if err := r.upsertRole(b.System(), req.Operation, data); err != nil {
 		return logical.ErrorResponse(err.Error()), nil
 	}
 
-	return b.storeRole(ctx, req.Storage, name, r)
+	entry, err := logical.StorageEntryJSON(fmt.Sprintf("role/%s", name), r)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := req.Storage.Put(ctx, entry); err != nil {
+		return nil, err
+	}
+
+	return nil, nil
 }
 
 func (b *googleAccountAuthBackend) pathRoleList(ctx context.Context, req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
@@ -179,8 +147,36 @@ func (b *googleAccountAuthBackend) pathRoleList(ctx context.Context, req *logica
 	return logical.ListResponse(roles), nil
 }
 
-// role reads a role from storage.  Returns nil, nil if the role doesn't exist.
-func (b *googleAccountAuthBackend) role(ctx context.Context, s logical.Storage, name string) (*role, error) {
+func (b *googleAccountAuthBackend) pathRoleRead(ctx context.Context, req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
+	name := data.Get(pathRolesNameProp).(string)
+	if name == "" {
+		return logical.ErrorResponse(errEmptyRoleName), nil
+	}
+
+	role, err := b.getDecodedRole(ctx, req.Storage, name)
+	if err != nil {
+		return nil, err
+	}
+
+	if role == nil {
+		return nil, nil
+	}
+
+	response := &logical.Response{
+		Data: GenericMap{
+			pathRolesNameProp:        name,
+			pathRolesPoliciesProp:    role.Policies,
+			pathRolesBoundGroupsProp: role.BoundGroups,
+			pathRolesBoundEmailsProp: role.BoundEmails,
+			pathRolesTTLProp:         fmt.Sprint(role.TTL / time.Second),
+			pathRolesMaxTTLProp:      fmt.Sprint(role.MaxTTL / time.Second),
+		},
+	}
+
+	return response, nil
+}
+
+func (b *googleAccountAuthBackend) getDecodedRole(ctx context.Context, s logical.Storage, name string) (*googleAuthRole, error) {
 	entry, err := s.Get(ctx, fmt.Sprintf("role/%s", name))
 	if err != nil {
 		return nil, err
@@ -190,7 +186,7 @@ func (b *googleAccountAuthBackend) role(ctx context.Context, s logical.Storage, 
 		return nil, nil
 	}
 
-	role := &role{}
+	role := &googleAuthRole{}
 	if err := entry.DecodeJSON(role); err != nil {
 		return nil, err
 	}
@@ -198,132 +194,70 @@ func (b *googleAccountAuthBackend) role(ctx context.Context, s logical.Storage, 
 	return role, nil
 }
 
-// storeRole saves the role to storage.
-// The returned response may contain either warnings or an error response,
-// but will be nil if error is not nil
-func (b *googleAccountAuthBackend) storeRole(ctx context.Context, s logical.Storage, roleName string, role *role) (*logical.Response, error) {
-	var resp *logical.Response
-	warnings, err := role.validate(b.System())
+///////////////////////////////////////////////////////////////////////////////
 
-	if err != nil {
-		return logical.ErrorResponse(err.Error()), nil
+func (r *googleAuthRole) upsertRole(sys logical.SystemView, op logical.Operation, data *framework.FieldData) error {
+	boundEmails := getFilteredStringSliceData(data, pathRolesBoundEmailsProp)
+	if boundEmails != nil {
+		r.BoundEmails = []string{}
+	} else {
+		r.BoundEmails = *boundEmails
 	}
-	if len(warnings) > 0 {
-		resp = &logical.Response{
-			Warnings: warnings,
+
+	boundGroups := getFilteredStringSliceData(data, pathRolesBoundGroupsProp)
+	if boundGroups == nil {
+		r.BoundGroups = []string{}
+	} else {
+		r.BoundGroups = *boundGroups
+	}
+
+	if len(r.BoundEmails)+len(r.BoundGroups) == 0 {
+		return fmt.Errorf("at least one email address or group must be set")
+	}
+
+	//////////////////////
+
+	if policies, ok := data.GetOk(pathRolesPoliciesProp); ok {
+		r.Policies = policyutil.ParsePolicies(policies)
+	} else {
+		return fmt.Errorf("unable to retrieve policies")
+	}
+
+	if len(r.Policies) == 0 {
+		return fmt.Errorf("at least one policy must be defined")
+	}
+
+	if strings.ToLower(r.Policies[0]) == "root" {
+		return fmt.Errorf("cannot use root policy")
+	}
+
+	//////////////////////
+
+	if ttl, err := getPositiveIntData(data, pathRolesTTLProp); err == nil {
+		if ttl == nil {
+			// fallbacks to 1 hour when unset
+			r.TTL = time.Duration(1) * time.Hour
+		} else {
+			r.TTL = time.Duration(*ttl) * time.Second
 		}
+	} else {
+		return err
 	}
 
-	entry, err := logical.StorageEntryJSON(fmt.Sprintf("role/%s", roleName), role)
-	if err != nil {
-		return nil, err
+	if mttl, err := getPositiveIntData(data, pathRolesMaxTTLProp); err == nil {
+		if mttl == nil {
+			// fallbacks to 1 day when unset
+			r.MaxTTL = time.Duration(24) * time.Hour
+		} else {
+			r.MaxTTL = time.Duration(*mttl) * time.Second
+		}
+	} else {
+		return err
 	}
 
-	if err := s.Put(ctx, entry); err != nil {
-		return nil, err
-	}
-
-	return resp, nil
-}
-
-// Update updates the given role with values parsed/validated from given FieldData.
-// Exactly one of the response and error will be nil. The response is only used to pass back warnings.
-// This method does not validate the role. Validation is done before storage.
-func (role *role) updateRole(sys logical.SystemView, op logical.Operation, data *framework.FieldData) error {
-	// Update policies.
-	policies, ok := data.GetOk("policies")
-	if ok {
-		role.Policies = policyutil.ParsePolicies(policies)
-	} else if op == logical.CreateOperation {
-		role.Policies = policyutil.ParsePolicies(data.Get("policies"))
-	}
-
-	// Update bound domain.
-	boundDomainRaw, ok := data.GetOk("bound_domain")
-	if ok {
-		role.BoundDomain = boundDomainRaw.(string)
-	}
-
-	// Update bound groups.
-	boundGroupsRaw, ok := data.GetOk("bound_groups")
-	if ok {
-		role.BoundGroups = boundGroupsRaw.([]string)
-	}
-
-	// Update bound groups.
-	boundEmailsRaw, ok := data.GetOk("bound_emails")
-	if ok {
-		role.BoundEmails = boundEmailsRaw.([]string)
-	}
-
-	// Update token TTL.
-	ttlRaw, ok := data.GetOk("ttl")
-	if ok {
-		role.TTL = time.Duration(ttlRaw.(int)) * time.Second
-
-	} else if op == logical.CreateOperation {
-		role.TTL = time.Duration(data.Get("ttl").(int)) * time.Second
-	}
-
-	// Update token Max TTL.
-	maxTTLRaw, ok := data.GetOk("max_ttl")
-	if ok {
-		role.MaxTTL = time.Duration(maxTTLRaw.(int)) * time.Second
-	} else if op == logical.CreateOperation {
-		role.MaxTTL = time.Duration(data.Get("max_ttl").(int)) * time.Second
-	}
-
-	// Update token period.
-	periodRaw, ok := data.GetOk("period")
-	if ok {
-		role.Period = time.Second * time.Duration(periodRaw.(int))
-	} else if op == logical.CreateOperation {
-		role.Period = time.Second * time.Duration(data.Get("period").(int))
+	if r.TTL.Hours() > r.MaxTTL.Hours() {
+		return fmt.Errorf("ttl (%s) cannot be greater than max_ttl (%s)", r.TTL.String(), r.MaxTTL.String())
 	}
 
 	return nil
 }
-
-func (role *role) validate(sys logical.SystemView) (warnings []string, err error) {
-	warnings = []string{}
-
-	defaultLeaseTTL := sys.DefaultLeaseTTL()
-	if role.TTL > defaultLeaseTTL {
-		warnings = append(warnings, fmt.Sprintf(
-			"Given ttl of %d seconds greater than current mount/system default of %d seconds; ttl will be capped at login time",
-			role.TTL/time.Second, defaultLeaseTTL/time.Second))
-	}
-
-	defaultMaxTTL := sys.MaxLeaseTTL()
-	if role.MaxTTL > defaultMaxTTL {
-		warnings = append(warnings, fmt.Sprintf(
-			"Given max_ttl of %d seconds greater than current mount/system default of %d seconds; max_ttl will be capped at login time",
-			role.MaxTTL/time.Second, defaultMaxTTL/time.Second))
-	}
-	if role.MaxTTL < time.Duration(0) {
-		return warnings, errors.New("max_ttl cannot be negative")
-	}
-	if role.MaxTTL != 0 && role.MaxTTL < role.TTL {
-		return warnings, errors.New("ttl should be shorter than max_ttl")
-	}
-
-	if role.Period > sys.MaxLeaseTTL() {
-		return warnings, fmt.Errorf("'period' of '%s' is greater than the backend's maximum lease TTL of '%s'", role.Period.String(), sys.MaxLeaseTTL().String())
-	}
-
-	return warnings, nil
-}
-
-const pathRolesHelpSyn = `
-A role is required to login under the Google auth backend. A role binds Vault policies and has
-required attributes that an authenticating entity must fulfill to login against this role.
-After authenticating the instance, Vault uses the bound policies to determine which resources
-the authorization token for the instance can access.
-`
-
-const (
-	pathListRolesHelpSyn  = "Lists all the roles that are registered with Vault."
-	pathListRolesHelpDesc = "Lists all roles under the Google backends by name."
-	errEmptyRoleName      = "role name is required"
-	errEmptyDomain        = "bound domain cannot be empty"
-)

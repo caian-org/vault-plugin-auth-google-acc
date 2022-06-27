@@ -7,6 +7,11 @@ import (
 	"github.com/hashicorp/vault/sdk/logical"
 )
 
+const backendHelp = `
+This credential provider allows you to authenticate with Google accounts.
+Documentation can be found at <https://github.com/caian-org/vault-plugin-auth-google-acc>
+`
+
 type ActionCallback map[logical.Operation]framework.OperationFunc
 
 type Schema map[string]*framework.FieldSchema
@@ -30,27 +35,21 @@ func newBackend() *googleAccountAuthBackend {
 	b.Backend = &framework.Backend{
 		BackendType: logical.TypeCredential,
 		AuthRenew:   b.authRenew,
-
+		Help:        backendHelp,
 		PathsSpecial: &logical.Paths{
 			Unauthenticated: []string{
 				pathLoginPattern,
 				pathCodeUrlPattern,
 			},
 		},
-
 		Paths: framework.PathAppend(
+			pathRoles(b),
 			[]*framework.Path{
 				pathConfig(b),
 				pathLogin(b),
 				pathCodeUrl(b),
 			},
-			pathRoles(b),
 		),
-
-		Help: `
-            The Google credential provider allows you to authenticate with Google.
-            Documentation can be found at https://github.com/erozario/vault-auth-google.
-        `,
 	}
 
 	return b

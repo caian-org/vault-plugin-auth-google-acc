@@ -14,15 +14,21 @@ import (
 	"github.com/hashicorp/vault/sdk/logical"
 )
 
+const (
+	pathLoginPattern            = "login"
+	pathLoginGoogleAuthCodeProp = "code"
+	pathLoginRoleNameProp       = "role"
+)
+
 func pathLogin(b *googleAccountAuthBackend) *framework.Path {
 	return &framework.Path{
 		Pattern: pathLoginPattern,
 		Fields: Schema{
-			pathLoginGoogleAuthCodeParam: {
+			pathLoginGoogleAuthCodeProp: {
 				Type:        framework.TypeString,
 				Description: "Google authentication code. Required.",
 			},
-			pathLoginRoleNameParam: {
+			pathLoginRoleNameProp: {
 				Type:        framework.TypeString,
 				Description: "Name of the role against which the login is being attempted. Required.",
 			},
@@ -35,10 +41,10 @@ func pathLogin(b *googleAccountAuthBackend) *framework.Path {
 }
 
 func (b *googleAccountAuthBackend) pathLoginAuthFlow(ctx context.Context, req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
-	code := data.Get(pathLoginGoogleAuthCodeParam).(string)
+	code := data.Get(pathLoginGoogleAuthCodeProp).(string)
+	roleName := data.Get(pathLoginRoleNameProp).(string)
+	role, err := b.getDecodedRole(ctx, req.Storage, roleName)
 
-	roleName := data.Get(pathLoginRoleNameParam).(string)
-	role, err := b.role(ctx, req.Storage, roleName)
 	if err != nil {
 		return nil, err
 	}
@@ -47,22 +53,23 @@ func (b *googleAccountAuthBackend) pathLoginAuthFlow(ctx context.Context, req *l
 		return logical.ErrorResponse(fmt.Sprintf("role '%s' not found", roleName)), nil
 	}
 
-	config, err := b.config(ctx, req.Storage)
+	googleOAuth, err := b.getGoogleOAuthConfig(ctx, req.Storage)
+
 	if err != nil {
 		return nil, err
 	}
 
-	if config == nil {
+	if googleOAuth == nil {
 		return logical.ErrorResponse("missing config"), nil
 	}
 
-	googleConfig := config.oauth2Config()
+	googleConfig := googleOAuth.build()
 	token, err := googleConfig.Exchange(oauth2.NoContext, code)
 	if err != nil {
 		return nil, err
 	}
 
-	user, groups, err := b.authenticate(config, token)
+	user, groups, err := b.authenticate(googleOAuth, token)
 	if err != nil {
 		return nil, err
 	}
@@ -86,7 +93,6 @@ func (b *googleAccountAuthBackend) pathLoginAuthFlow(ctx context.Context, req *l
 		},
 		Metadata: map[string]string{
 			"username": user.Email,
-			"domain":   user.Hd,
 		},
 		LeaseOptions: logical.LeaseOptions{
 			TTL:       role.TTL,
@@ -108,7 +114,7 @@ func (b *googleAccountAuthBackend) authRenew(ctx context.Context, req *logical.R
 		return nil, errors.New("no role name from previous login")
 	}
 
-	role, err := b.role(ctx, req.Storage, roleName)
+	role, err := b.getDecodedRole(ctx, req.Storage, roleName)
 	if err != nil {
 		return nil, err
 	}
@@ -116,12 +122,14 @@ func (b *googleAccountAuthBackend) authRenew(ctx context.Context, req *logical.R
 		return nil, fmt.Errorf("role '%s' not found", roleName)
 	}
 
-	config, err := b.config(ctx, req.Storage)
+	googleOAuth, err := b.getGoogleOAuthConfig(ctx, req.Storage)
+
 	if err != nil {
 		return nil, err
 	}
-	if config == nil {
-		return logical.ErrorResponse("missing config"), nil
+
+	if googleOAuth == nil {
+		return logical.ErrorResponse("missing Google OAuth config"), nil
 	}
 
 	token, err := decodeToken(encodedToken)
@@ -129,7 +137,7 @@ func (b *googleAccountAuthBackend) authRenew(ctx context.Context, req *logical.R
 		return nil, err
 	}
 
-	user, groups, err := b.authenticate(config, token)
+	user, groups, err := b.authenticate(googleOAuth, token)
 	if err != nil {
 		return nil, err
 	}
@@ -146,8 +154,8 @@ func (b *googleAccountAuthBackend) authRenew(ctx context.Context, req *logical.R
 	return framework.LeaseExtend(role.TTL, role.MaxTTL, b.System())(ctx, req, d)
 }
 
-func (b *googleAccountAuthBackend) authenticate(googleAuth *googleAuth, token *oauth2.Token) (*goauth.Userinfo, []string, error) {
-	client := googleAuth.oauth2Config().Client(context.Background(), token)
+func (b *googleAccountAuthBackend) authenticate(googleOAuth *googleOAuth, token *oauth2.Token) (*goauth.Userinfo, []string, error) {
+	client := googleOAuth.build().Client(context.Background(), token)
 
 	userService, err := goauth.New(client)
 	if err != nil {
@@ -160,15 +168,15 @@ func (b *googleAccountAuthBackend) authenticate(googleAuth *googleAuth, token *o
 	}
 
 	groups := []string{}
-	if googleAuth.FetchGroups {
+	if googleOAuth.FetchGroups {
 		scope := "https://www.googleapis.com/auth/admin.directory.group.readonly"
 
-		serviceAccountCredential, err := google.JWTConfigFromJSON([]byte(googleAuth.ServiceAccount), scope)
+		serviceAccountCredential, err := google.JWTConfigFromJSON([]byte(googleOAuth.ServiceAccount), scope)
 		if err != nil {
 			return nil, nil, err
 		}
 
-		serviceAccountCredential.Subject = googleAuth.DelegationUser
+		serviceAccountCredential.Subject = googleOAuth.DelegationUser
 		saClient, err := directory.New(serviceAccountCredential.Client(context.Background()))
 		if err != nil {
 			return nil, nil, err
@@ -187,12 +195,7 @@ func (b *googleAccountAuthBackend) authenticate(googleAuth *googleAuth, token *o
 	return user, groups, nil
 }
 
-func (b *googleAccountAuthBackend) authorize(storage logical.Storage, role *role, user *goauth.Userinfo, groups []string) ([]string, error) {
-	if user.Hd != role.BoundDomain && role.BoundDomain != "" {
-		return nil, fmt.Errorf("user %s is not part of required domain %s, found %s", user.Email, role.BoundDomain, user.Hd)
-	}
-
-	// Is this user in one of the bound groups for this role?
+func (b *googleAccountAuthBackend) authorize(storage logical.Storage, role *googleAuthRole, user *goauth.Userinfo, groups []string) ([]string, error) {
 	isGroupMember := strSliceHasIntersection(groups, role.BoundGroups)
 	isUserMember := strSliceHasIntersection([]string{user.Email}, role.BoundEmails)
 
@@ -202,9 +205,3 @@ func (b *googleAccountAuthBackend) authorize(storage logical.Storage, role *role
 
 	return role.Policies, nil
 }
-
-const (
-	pathLoginPattern             = "login"
-	pathLoginGoogleAuthCodeParam = "code"
-	pathLoginRoleNameParam       = "role"
-)
