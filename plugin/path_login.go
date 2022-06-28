@@ -26,11 +26,11 @@ func pathLogin(b *googleAccountAuthBackend) *framework.Path {
 		Fields: Schema{
 			pathLoginGoogleAuthCodeProp: {
 				Type:        framework.TypeString,
-				Description: "Google authentication code. Required.",
+				Description: "Google authentication code",
 			},
 			pathLoginRoleNameProp: {
 				Type:        framework.TypeString,
-				Description: "Name of the role against which the login is being attempted. Required.",
+				Description: "Name of the role against which the login is being attempted",
 			},
 		},
 		Callbacks: ActionCallback{
@@ -84,24 +84,28 @@ func (b *googleAccountAuthBackend) pathLoginAuthFlow(ctx context.Context, req *l
 		return nil, err
 	}
 
-	auth := &logical.Auth{
-		DisplayName: user.Email,
-		Policies:    policies,
-		InternalData: GenericMap{
-			"token": encodedToken,
-			"role":  roleName,
-		},
-		Metadata: map[string]string{
-			"username": user.Email,
-		},
-		LeaseOptions: logical.LeaseOptions{
-			TTL:       role.TTL,
-			Renewable: true,
+	response := &logical.Response{
+		Auth: &logical.Auth{
+			DisplayName: user.Email,
+			Policies:    policies,
+			InternalData: GenericMap{
+				"token": encodedToken,
+				"role":  roleName,
+			},
+			Metadata: map[string]string{
+				"username": user.Email,
+			},
+			LeaseOptions: logical.LeaseOptions{
+				TTL:       role.TTL,
+				Renewable: true,
+			},
 		},
 	}
 
-	return &logical.Response{Auth: auth}, nil
+	return response, nil
 }
+
+///////////////////////////////////////////////////////////////////////////////
 
 func (b *googleAccountAuthBackend) authRenew(ctx context.Context, req *logical.Request, d *framework.FieldData) (*logical.Response, error) {
 	encodedToken, ok := req.Auth.InternalData["token"].(string)
@@ -147,7 +151,7 @@ func (b *googleAccountAuthBackend) authRenew(ctx context.Context, req *logical.R
 		return nil, err
 	}
 
-	if !strSliceEquals(policies, req.Auth.Policies) {
+	if !sliceEquals(policies, req.Auth.Policies) {
 		return logical.ErrorResponse(fmt.Sprintf("policies do not match. new policies: %s. old policies: %s.", policies, req.Auth.Policies)), nil
 	}
 
@@ -168,40 +172,42 @@ func (b *googleAccountAuthBackend) authenticate(googleOAuth *googleOAuth, token 
 	}
 
 	groups := []string{}
-	if googleOAuth.FetchGroups {
-		scope := "https://www.googleapis.com/auth/admin.directory.group.readonly"
 
-		serviceAccountCredential, err := google.JWTConfigFromJSON([]byte(googleOAuth.ServiceAccount), scope)
-		if err != nil {
-			return nil, nil, err
-		}
+	if !googleOAuth.FetchGroups {
+		return user, groups, nil
+	}
 
-		serviceAccountCredential.Subject = googleOAuth.DelegationUser
-		saClient, err := directory.New(serviceAccountCredential.Client(context.Background()))
-		if err != nil {
-			return nil, nil, err
-		}
+	saScopes := "https://www.googleapis.com/auth/admin.directory.group.readonly"
+	saCredential, err := google.JWTConfigFromJSON([]byte(googleOAuth.ServiceAccount), saScopes)
+	if err != nil {
+		return nil, nil, err
+	}
 
-		response, err := saClient.Groups.List().UserKey(user.Email).Do()
-		if err != nil {
-			return nil, nil, err
-		}
+	saCredential.Subject = googleOAuth.DelegationUser
+	saClient, err := directory.New(saCredential.Client(context.Background()))
+	if err != nil {
+		return nil, nil, err
+	}
 
-		for _, g := range response.Groups {
-			groups = append(groups, g.Email)
-		}
+	response, err := saClient.Groups.List().UserKey(user.Email).Do()
+	if err != nil {
+		return nil, nil, err
+	}
+
+	for _, g := range response.Groups {
+		groups = append(groups, g.Email)
 	}
 
 	return user, groups, nil
 }
 
 func (b *googleAccountAuthBackend) authorize(storage logical.Storage, role *googleAuthRole, user *goauth.Userinfo, groups []string) ([]string, error) {
-	isGroupMember := strSliceHasIntersection(groups, role.BoundGroups)
-	isUserMember := strSliceHasIntersection([]string{user.Email}, role.BoundEmails)
+	isGroupMember := sliceContains(groups, role.BoundGroups)
+	isUserMember := sliceContains([]string{user.Email}, role.BoundEmails)
 
-	if !isGroupMember && !isUserMember {
-		return nil, fmt.Errorf("user is not allowed to use this role")
+	if isUserMember || isGroupMember {
+		return role.Policies, nil
 	}
 
-	return role.Policies, nil
+	return nil, fmt.Errorf("user is not allowed to use this role")
 }

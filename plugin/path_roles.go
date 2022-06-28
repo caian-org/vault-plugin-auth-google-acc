@@ -118,11 +118,12 @@ func (b *googleAccountAuthBackend) pathRoleUpsert(ctx context.Context, req *logi
 		return nil, err
 	}
 
+	// new role
 	if r == nil {
 		r = &googleAuthRole{}
 	}
 
-	if err := r.upsertRole(b.System(), req.Operation, data); err != nil {
+	if err := r.parseAndValidateInput(b.System(), req.Operation, data); err != nil {
 		return logical.ErrorResponse(err.Error()), nil
 	}
 
@@ -176,6 +177,8 @@ func (b *googleAccountAuthBackend) pathRoleRead(ctx context.Context, req *logica
 	return response, nil
 }
 
+///////////////////////////////////////////////////////////////////////////////
+
 func (b *googleAccountAuthBackend) getDecodedRole(ctx context.Context, s logical.Storage, name string) (*googleAuthRole, error) {
 	entry, err := s.Get(ctx, fmt.Sprintf("role/%s", name))
 	if err != nil {
@@ -196,9 +199,9 @@ func (b *googleAccountAuthBackend) getDecodedRole(ctx context.Context, s logical
 
 ///////////////////////////////////////////////////////////////////////////////
 
-func (r *googleAuthRole) upsertRole(sys logical.SystemView, op logical.Operation, data *framework.FieldData) error {
+func (r *googleAuthRole) parseAndValidateInput(sys logical.SystemView, op logical.Operation, data *framework.FieldData) error {
 	boundEmails := getFilteredStringSliceData(data, pathRolesBoundEmailsProp)
-	if boundEmails != nil {
+	if boundEmails == nil {
 		r.BoundEmails = []string{}
 	} else {
 		r.BoundEmails = *boundEmails
@@ -213,6 +216,17 @@ func (r *googleAuthRole) upsertRole(sys logical.SystemView, op logical.Operation
 
 	if len(r.BoundEmails)+len(r.BoundGroups) == 0 {
 		return fmt.Errorf("at least one email address or group must be set")
+	}
+
+	invalidEmailAddrs := []string{}
+	for _, emailAddr := range append(r.BoundEmails, r.BoundGroups...) {
+		if !isValidEmail(emailAddr) {
+			invalidEmailAddrs = append(invalidEmailAddrs, emailAddr)
+		}
+	}
+
+	if len(invalidEmailAddrs) > 0 {
+		return fmt.Errorf("one or more provided email addresses are invalid: %s", strings.Join(invalidEmailAddrs, ", "))
 	}
 
 	//////////////////////

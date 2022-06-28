@@ -121,7 +121,8 @@ func (b *googleAccountAuthBackend) pathConfigRead(ctx context.Context, req *logi
 	return response, nil
 }
 
-// Config returns the configuration for this backend.
+///////////////////////////////////////////////////////////////////////////////
+
 func (b *googleAccountAuthBackend) getGoogleOAuthConfig(ctx context.Context, s logical.Storage) (*googleOAuth, error) {
 	entry, err := s.Get(ctx, pathConfigEntry)
 

@@ -3,6 +3,7 @@ package gaccauth
 import (
 	"encoding/json"
 	"fmt"
+	"net/mail"
 	"net/url"
 	"sort"
 	"strings"
@@ -13,7 +14,7 @@ import (
 
 type GenericMap map[string]interface{}
 
-func strSliceEquals(a, b []string) bool {
+func sliceEquals(a []string, b []string) bool {
 	sort.Strings(a)
 	sort.Strings(b)
 
@@ -30,18 +31,13 @@ func strSliceEquals(a, b []string) bool {
 	return true
 }
 
-func strSliceHasIntersection(a, b []string) bool {
-	sort.Strings(a)
-	sort.Strings(b)
-
-	for i, j := 0, 0; i < len(a) && j < len(b); {
-		if a[i] == b[j] {
-			return true
-		}
-		if a[i] < b[j] {
-			i++
-		} else {
-			j++
+// is any item of A contained in B?
+func sliceContains(a []string, b []string) bool {
+	for _, i := range a {
+		for _, j := range b {
+			if i == j {
+				return true
+			}
 		}
 	}
 
@@ -124,4 +120,9 @@ func isValidUrl(addr string) bool {
 	}
 
 	return true
+}
+
+func isValidEmail(addr string) bool {
+	_, err := mail.ParseAddress(addr)
+	return err == nil
 }
