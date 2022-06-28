@@ -14,11 +14,11 @@ class VaultLoginWithGoogleAccHandler(Controller):
             vault_token = self.service.vault.get_vault_token(google_oauth_code, vault_role)
             return self.render_page('token.html', token=vault_token)
 
-        except VaultConnectionError:
-            return self.error.connection_error('L001')
+        except VaultConnectionError as e:
+            return self.error.connection_error('L001', e)
 
-        except VaultForbiddenError:
-            return self.error.forbidden('L002')
+        except VaultForbiddenError as e:
+            return self.error.forbidden('L002', e)
 
-        except VaultInvalidRequestError:
-            return self.error.invalid_request('L003')
+        except VaultInvalidRequestError as e:
+            return self.error.invalid_request('L003', e)

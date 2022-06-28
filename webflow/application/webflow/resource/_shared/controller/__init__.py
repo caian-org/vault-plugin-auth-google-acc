@@ -18,7 +18,7 @@ class Controller(Resource):
     def __init__(self):
         self.logger = logging.getLogger(__name__)
 
-        self.error = ErrorResponse()
+        self.error = ErrorResponse(self.logger)
         self.service = Service()
 
     @staticmethod
